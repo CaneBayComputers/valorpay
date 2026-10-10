@@ -71,8 +71,13 @@ To cancel a page so it can no longer be paid, call `ValorPay::cancelHostedPage($
 Things to know:
 
 - **The success URL proves nothing.** Anyone can open it. Confirm the payment with step 2.
-- **The customer's email is not sent.** ValorPay emails that address an "E-INVOICE, please pay" message
-  even with notifications off, which confuses someone who just paid. Send your own receipt.
+- **Don't pass `email` or `phone`.** Either one makes ValorPay send its own "E-INVOICE, please pay" email
+  or SMS, which confuses someone who is paying in the browser right now. No setting stops it:
+  `notification_status: 0`, `invoice_mode`, the `?pagesale` variant with `customer_*: 0`, and updating
+  the page afterwards all still send it. `is_customer_info_avail` only hides an email you supplied; the
+  page still shows its Email and Cell Phone boxes. This package sends neither, so send your own receipt.
+- **Don't pass `zip`.** The hosted page has no ZIP field, and a supplied `zip` makes the page hang on a
+  JavaScript error.
 - **Private-IP URLs get a 403.** ValorPay's firewall refuses success and failure URLs that point at a
   private IP (`http://10.x.x.x`, `http://192.168.x.x`). Local development needs a public URL.
 - **Other fields:** `validDays:` overrides how long the link lasts. `extra: [...]` passes any other
@@ -141,6 +146,9 @@ $subscriptionId = ValorPay::createSubscription(new SubscriptionRequest(
     email: 'billing@acme.example',
 ));
 ```
+
+**Collect the ZIP code yourself.** Add Subscription requires a billing ZIP, but hosted-page sales never
+record one (`BILLING_ZIPCODE` is always blank), so ask for it on your own form.
 
 `SubscriptionRequest` checks every field against ValorPay's rules before anything is sent. A bad ZIP,
 a 13-character invoice number or a 31st-day charge throws `InvalidArgumentException` before any call
@@ -259,22 +267,30 @@ Http::fake(['*valorpaytech.com*' => Http::response(['status' => 'SUCCESS', 'data
 
 ## What has and hasn't been tried against production
 
-These were checked against production with read-only calls (2026-10-09): the transaction list
-(including date-range splitting and pagination), exact invoice matching, card-token lookup,
-subscription listing (an empty list comes back as `E31`), hosted pages, and cancelling a page (proven
-by zeltro-license, where this code comes from).
+Checked against production with read-only calls (2026-10-09):
 
-These follow ValorPay's documentation but have **not yet been run live**:
+- The transaction list, including date-range splitting and pagination.
+- Exact invoice matching and card-token lookup.
+- Subscription listing. An empty list comes back as `E31`.
+- Hosted pages and cancelling them, proven by zeltro-license, where this code comes from.
 
-- Creating, updating, pausing, resuming and deleting subscriptions.
-- Whether a subscription accepts a hosted-page sale's token. The docs say "card token received from
-  the transaction".
-- Which EPI recurring charges are recorded on. Because of this, `transactionsForSubscription()` doesn't
-  filter by EPI.
-- The date format: the docs say `YYYYMMDD`, but their examples use `YYYY-MM-DD`, which is what this
-  package sends.
+Run live by cbc-admin (2026-10-10):
 
-Try the first subscription on a small amount.
+- `createSubscription()` with the `TOKEN` from a $25.00 hosted-page sale. It returned a subscription ID,
+  and the subscription list shows it active, with the right amount, invoice number, charge day and a
+  `YYYY-MM-DD` start date. So ValorPay accepts a hosted-sale token, and it accepts the `YYYY-MM-DD`
+  format this package sends (its docs say `YYYYMMDD`).
+- `validateCard: true` did not add a charge. The hosted-page sale was the only charge.
+- Twenty test hosted pages, which found the `email`, `phone` and `zip` problems listed under step 1.
+
+Not yet seen live:
+
+- The first scheduled charge, and with it:
+  - Which EPI recurring charges land on. Because of this, `transactionsForSubscription()` doesn't filter by EPI.
+  - Whether a recurring charge carries the subscription's invoice number.
+  - Exactly where the recurring-billing webhook puts the subscription ID. `WebhookHint` reads both
+    documented spellings.
+- Updating, pausing, resuming and deleting a subscription.
 
 ## Development
 
