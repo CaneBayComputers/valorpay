@@ -18,6 +18,8 @@ Three rules hold everywhere in this package:
 
 ## Install
 
+Requires PHP 8.3+ and Laravel 12 or 13 (Guzzle 7 or 8).
+
 ```bash
 composer require canebaycomputers/valorpay
 ```
